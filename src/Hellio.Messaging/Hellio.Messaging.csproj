@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Hellio.Messaging</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Albert Ninyeh</Authors>
+    <Company>Hellio Solutions</Company>
+    <Product>Hellio Messaging SDK</Product>
+    <Description>Official .NET client for the Hellio Messaging API v1: SMS, OTP (SMS / email / voice), Voice broadcasts, Number Lookup (HLR), Email Verification, and Webhooks.</Description>
+    <PackageTags>hellio;sms;otp;voice;messaging;hlr;lookup;webhooks;email-verification</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/HellioSolutions/hellio-dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/HellioSolutions/hellio-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Copyright>Copyright (c) 2026 Albert Ninyeh, Hellio Solutions</Copyright>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+</Project>
