@@ -109,9 +109,9 @@ namespace Hellio.Messaging
         // ----------------------------------------------------------------- OTP
 
         /// <summary>
-        /// POST <c>otp/send</c>. <paramref name="to"/> is a phone number (sms/voice) or an email
-        /// (channel "email"). <paramref name="sender"/> is required and must be approved for
-        /// sms/voice; it is ignored for email.
+        /// POST <c>otp/send</c>. <paramref name="to"/> is a phone number (sms/voice/whatsapp) or an
+        /// email (channel "email"). <paramref name="sender"/> is required and must be approved for
+        /// sms/voice; it is ignored for whatsapp and email.
         /// </summary>
         public Task<JsonElement> SendOtpAsync(
             string to,
@@ -322,6 +322,7 @@ namespace Hellio.Messaging
                 402 => new InsufficientBalanceException(message, status, data),
                 422 => new ValidationException(message, status, data),
                 429 => new RateLimitException(message, status, data),
+                503 => new ServiceUnavailableException(message, status, data),
                 _ => new HellioException(message, status, data),
             };
         }
