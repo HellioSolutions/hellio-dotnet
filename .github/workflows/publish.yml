@@ -1,17 +1,28 @@
 name: publish
 
-# Publishes Hellio.Messaging to NuGet when a version tag (v*) is pushed.
-# Set the NUGET_API_KEY repository secret first:
-#   Settings -> Secrets and variables -> Actions -> New repository secret
-#   Name: NUGET_API_KEY   Value: your nuget.org API key
+# Publishes Hellio.Messaging to NuGet via Trusted Publishing (OIDC) — no API key.
+# Triggered by pushing a version tag (v*), or manually from the Actions tab.
+#
+# One-time setup on nuget.org (Account -> Trusted Publishing) create a policy with:
+#   Package owner: HellioSolutions   Repository Owner: HellioSolutions
+#   Repository: hellio-dotnet        Workflow File: publish.yml
+#   Environment: main
+# and set the repo Actions variable NUGET_USER to the nuget.org account username
+# that owns the policy (Settings -> Secrets and variables -> Actions -> Variables).
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: main
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +41,11 @@ jobs:
       - name: Pack
         run: dotnet pack src/Hellio.Messaging/Hellio.Messaging.csproj --configuration Release --output ./artifacts
 
+      - name: NuGet login (Trusted Publishing OIDC)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push to NuGet
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: dotnet nuget push "./artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push "./artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
