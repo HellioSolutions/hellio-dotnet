@@ -7,8 +7,7 @@ name: publish
 #   Package owner: HellioSolutions   Repository Owner: HellioSolutions
 #   Repository: hellio-dotnet        Workflow File: publish.yml
 #   Environment: main
-# and set the repo Actions variable NUGET_USER to the nuget.org account username
-# that owns the policy (Settings -> Secrets and variables -> Actions -> Variables).
+# The `user` below is the nuget.org account username that owns the policy.
 on:
   push:
     tags:
@@ -45,7 +44,7 @@ jobs:
         id: login
         uses: NuGet/login@v1
         with:
-          user: ${{ vars.NUGET_USER }}
+          user: HellioSolutions
 
       - name: Push to NuGet
         run: dotnet nuget push "./artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
