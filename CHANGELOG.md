@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [1.2.0] - 2026-07-07
+
+### Added
+- USSD apps now have test/live modes, each with its own signing secret:
+  - `UssdApp` gains `Mode`, `TestSecret` (prefix `ussk_test_`), `LiveSecret` (prefix
+    `ussk_live_`), and `IsLive`; the single `Secret` property is removed.
+  - `client.Ussd.Apps.SetModeAsync(id, mode)` switches an app between "test" and "live".
+  - `client.Ussd.Apps.RotateSecretAsync(id, mode)` rotates the secret for the given mode.
+  - `ExtensionRequiredException` (402, `error: "extension_required"`), raised when switching
+    an app to live before an extension is purchased.
+
+### Changed
+- USSD ids are now UUID strings: `UssdApp.Id`, `UssdExtension.Id`, `UssdExtension.AppId`,
+  and `UssdSession.Id` are `string`; id parameters on `Apps.UpdateAsync`, `Apps.DeleteAsync`,
+  `Extensions.RentAsync` (`appId`), `Extensions.ReleaseAsync`, and `Sessions.GetAsync` change
+  from `long`/`int` to `string`.
+- `SimulateAsync` now takes a required `appId` (json `app_id`) and an optional `serviceCode`
+  (omitted from the body when null, so the server uses the shared short code). It always runs
+  in the sandbox (test mode); an app you do not own returns `ValidationException`
+  (422, `error: "unknown_app"`).
+- Extension rentals draw from a dedicated USSD balance (separate from SMS credit and the main
+  wallet); insufficient funds now returns 402 `error: "insufficient_ussd_balance"` (was
+  `insufficient_balance`), still surfaced as `InsufficientBalanceException`.
+
 ## [1.1.0] - 2026-07-07
 
 ### Added

@@ -106,6 +106,12 @@ of the SDK, these methods return **typed models** (for example `UssdApp`, `UssdE
 `UssdSession`) rather than a raw `JsonElement`. List methods accept an optional `cursor` for
 pagination.
 
+Apps have two modes, **test** and **live**, each with its own signing secret
+(`test_secret`, prefix `ussk_test_`; `live_secret`, prefix `ussk_live_`). New apps start in
+test mode. The typical lifecycle is: create the app, simulate the flow against your callback
+URL (sandbox, addressed by `appId`), rent an extension from your USSD balance, then switch the
+app to live. USSD money is a **dedicated balance**, separate from SMS credit and the main wallet.
+
 ```csharp
 using Hellio.Messaging;
 
@@ -119,39 +125,60 @@ if (check.Valid && check.Available)
     // check.MonthlyPrice holds the rental cost
 }
 
-// Applications (hold your callback URL and signing secret)
+// 1. Create an application. The response carries both signing secrets and starts in test mode.
 UssdApp app = await hellio.Ussd.Apps.CreateAsync("Airtime top-up", "https://your-app.com/ussd");
-string secret = app.Secret;                         // save this to verify callback signatures
-await hellio.Ussd.Apps.UpdateAsync(app.Id, "Airtime top-up", "https://your-app.com/ussd", active: true);
-IReadOnlyList<UssdApp> apps = await hellio.Ussd.Apps.ListAsync();
-await hellio.Ussd.Apps.DeleteAsync(app.Id);
+string appId = app.Id!;                 // a UUID string
+string testSecret = app.TestSecret!;    // ussk_test_...: verify sandbox callback signatures
+string liveSecret = app.LiveSecret!;    // ussk_live_...: verify live callback signatures
+// app.Mode == "test", app.IsLive == false
 
-// Extensions (a dialable suffix under a shared short code)
+await hellio.Ussd.Apps.UpdateAsync(appId, "Airtime top-up", "https://your-app.com/ussd", active: true);
+IReadOnlyList<UssdApp> apps = await hellio.Ussd.Apps.ListAsync();
+
+// 2. Simulate the flow. Always runs in the sandbox (test mode) and is addressed by appId.
+//    Start with newSession: true, then pass the reference back on later steps.
+//    serviceCode is optional; omit it to use the shared short code.
+UssdSimulateResult step1 = await hellio.Ussd.SimulateAsync(
+    appId: appId, msisdn: "233241234567", newSession: true);
+UssdSimulateResult step2 = await hellio.Ussd.SimulateAsync(
+    appId: appId, msisdn: "233241234567", input: "1", sessionId: "sess-1");
+// step.Message is shown to the subscriber; step.Continue is false when the session ends.
+// An app you do not own returns ValidationException (422, error "unknown_app").
+
+// 3. Rent an extension (a dialable suffix under the shared short code). Drawn from your USSD balance.
 try
 {
-    UssdExtension ext = await hellio.Ussd.Extensions.RentAsync("100", appId: app.Id);
+    UssdExtension ext = await hellio.Ussd.Extensions.RentAsync("100", appId: appId);
     // ext.DialString is what subscribers dial, e.g. *920*100#
 }
 catch (ConflictException)            // 409: the code is already taken
 {
 }
-catch (InsufficientBalanceException) // 402: top up your wallet
+catch (InsufficientBalanceException) // 402 "insufficient_ussd_balance": top up your USSD balance
 {
 }
 IReadOnlyList<UssdExtension> extensions = await hellio.Ussd.Extensions.ListAsync();
-await hellio.Ussd.Extensions.ReleaseAsync(3);
+
+// 4. Go live once an extension is in place.
+try
+{
+    UssdApp live = await hellio.Ussd.Apps.SetModeAsync(appId, "live");   // live.IsLive == true
+}
+catch (ExtensionRequiredException)   // 402 "extension_required": rent an extension first
+{
+}
+
+// Rotate a signing secret when needed ("test" or "live").
+UssdApp rotated = await hellio.Ussd.Apps.RotateSecretAsync(appId, "live");
+string newLiveSecret = rotated.LiveSecret!;
 
 // Sessions
 IReadOnlyList<UssdSession> ended = await hellio.Ussd.Sessions.ListAsync(status: "ended");
-UssdSession session = await hellio.Ussd.Sessions.GetAsync(9);
+UssdSession session = await hellio.Ussd.Sessions.GetAsync("99999999-0000-0000-0000-000000000009");
 
-// Simulate a flow against your callback URL without a live dial.
-// Start with newSession: true, then pass the reference back on later steps.
-UssdSimulateResult step1 = await hellio.Ussd.SimulateAsync(
-    msisdn: "233241234567", serviceCode: "*920*100#", newSession: true);
-UssdSimulateResult step2 = await hellio.Ussd.SimulateAsync(
-    msisdn: "233241234567", serviceCode: "*920*100#", input: "1", sessionId: "sess-1");
-// step.Message is shown to the subscriber; step.Continue is false when the session ends.
+// Clean up
+await hellio.Ussd.Extensions.ReleaseAsync("33333333-0000-0000-0000-000000000003");
+await hellio.Ussd.Apps.DeleteAsync(appId);
 ```
 
 ### Handling USSD callbacks
@@ -162,8 +189,10 @@ When a subscriber dials your extension, Hellio POSTs a JSON body to your app's `
 ```
 
 The request is signed with an `X-Hellio-Signature` header holding
-`HMAC-SHA256(rawBody, app.Secret)`. Verify it, then reply with `{ "message": ..., "action": ... }`
-where `action` is `continue` or `end`.
+`HMAC-SHA256(rawBody, appSecret)`, where `appSecret` is the secret for the mode the request
+came in on: `app.TestSecret` for sandbox/simulator traffic and `app.LiveSecret` for live dials
+(the `mode` field in the body tells you which). Verify it, then reply with
+`{ "message": ..., "action": ... }` where `action` is `continue` or `end`.
 
 ```csharp
 using System.Security.Cryptography;
@@ -192,6 +221,7 @@ via the `Errors` property.
 |---|---|
 | `InvalidApiTokenException` | 401 |
 | `InsufficientBalanceException` | 402 |
+| `ExtensionRequiredException` | 402 (USSD: `SetModeAsync` to live before renting an extension) |
 | `ConflictException` | 409 |
 | `ValidationException` (`.Errors`) | 422 |
 | `RateLimitException` | 429 |

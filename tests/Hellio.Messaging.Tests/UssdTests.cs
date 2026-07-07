@@ -63,8 +63,9 @@ namespace Hellio.Messaging.Tests
         public async Task Apps_List_ReturnsTypedList()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
-                "{\"data\":[{\"id\":1,\"name\":\"Airtime\",\"callback_url\":\"https://a.com/cb\"," +
-                "\"secret\":\"shh\",\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}]}");
+                "{\"data\":[{\"id\":\"11111111-1111-1111-1111-111111111111\",\"name\":\"Airtime\"," +
+                "\"callback_url\":\"https://a.com/cb\",\"mode\":\"test\",\"is_live\":false," +
+                "\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}]}");
             var client = Client(handler);
 
             var apps = await client.Ussd.Apps.ListAsync();
@@ -72,8 +73,10 @@ namespace Hellio.Messaging.Tests
             Assert.Equal("https://api.helliomessaging.com/v1/ussd/apps",
                 handler.LastRequest!.RequestUri!.ToString());
             Assert.Single(apps);
-            Assert.Equal(1, apps[0].Id);
+            Assert.Equal("11111111-1111-1111-1111-111111111111", apps[0].Id);
             Assert.Equal("Airtime", apps[0].Name);
+            Assert.Equal("test", apps[0].Mode);
+            Assert.False(apps[0].IsLive);
             Assert.True(apps[0].Active);
         }
 
@@ -93,7 +96,10 @@ namespace Hellio.Messaging.Tests
         public async Task Apps_Create_PostsNameAndCallback()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.Created,
-                "{\"data\":{\"id\":7,\"name\":\"Airtime\",\"callback_url\":\"https://a.com/cb\",\"secret\":\"whsec_x\",\"active\":true}}");
+                "{\"data\":{\"id\":\"aaaaaaaa-0000-0000-0000-000000000007\",\"name\":\"Airtime\"," +
+                "\"callback_url\":\"https://a.com/cb\",\"mode\":\"test\"," +
+                "\"test_secret\":\"ussk_test_abc\",\"live_secret\":\"ussk_live_xyz\"," +
+                "\"is_live\":false,\"active\":true}}");
             var client = Client(handler);
 
             var app = await client.Ussd.Apps.CreateAsync("Airtime", "https://a.com/cb");
@@ -104,21 +110,26 @@ namespace Hellio.Messaging.Tests
             using var body = JsonDocument.Parse(handler.LastRequestBody!);
             Assert.Equal("Airtime", body.RootElement.GetProperty("name").GetString());
             Assert.Equal("https://a.com/cb", body.RootElement.GetProperty("callback_url").GetString());
-            Assert.Equal(7, app.Id);
-            Assert.Equal("whsec_x", app.Secret);
+            Assert.Equal("aaaaaaaa-0000-0000-0000-000000000007", app.Id);
+            Assert.Equal("test", app.Mode);
+            Assert.Equal("ussk_test_abc", app.TestSecret);
+            Assert.Equal("ussk_live_xyz", app.LiveSecret);
+            Assert.False(app.IsLive);
         }
 
         [Fact]
         public async Task Apps_Update_UsesPutWithActiveFlag()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
-                "{\"data\":{\"id\":7,\"name\":\"New\",\"callback_url\":\"https://a.com/cb2\",\"active\":false}}");
+                "{\"data\":{\"id\":\"aaaaaaaa-0000-0000-0000-000000000007\",\"name\":\"New\"," +
+                "\"callback_url\":\"https://a.com/cb2\",\"active\":false}}");
             var client = Client(handler);
 
-            var app = await client.Ussd.Apps.UpdateAsync(7, "New", "https://a.com/cb2", active: false);
+            var app = await client.Ussd.Apps.UpdateAsync(
+                "aaaaaaaa-0000-0000-0000-000000000007", "New", "https://a.com/cb2", active: false);
 
             Assert.Equal(HttpMethod.Put, handler.LastRequest!.Method);
-            Assert.Equal("https://api.helliomessaging.com/v1/ussd/apps/7",
+            Assert.Equal("https://api.helliomessaging.com/v1/ussd/apps/aaaaaaaa-0000-0000-0000-000000000007",
                 handler.LastRequest!.RequestUri!.ToString());
             using var body = JsonDocument.Parse(handler.LastRequestBody!);
             Assert.Equal("New", body.RootElement.GetProperty("name").GetString());
@@ -127,15 +138,66 @@ namespace Hellio.Messaging.Tests
         }
 
         [Fact]
+        public async Task Apps_SetMode_PostsModeAndReturnsApp()
+        {
+            var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
+                "{\"data\":{\"id\":\"aaaaaaaa-0000-0000-0000-000000000007\",\"name\":\"Airtime\"," +
+                "\"mode\":\"live\",\"is_live\":true,\"active\":true}}");
+            var client = Client(handler);
+
+            var app = await client.Ussd.Apps.SetModeAsync("aaaaaaaa-0000-0000-0000-000000000007", "live");
+
+            Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+            Assert.Equal("https://api.helliomessaging.com/v1/ussd/apps/aaaaaaaa-0000-0000-0000-000000000007/mode",
+                handler.LastRequest!.RequestUri!.ToString());
+            using var body = JsonDocument.Parse(handler.LastRequestBody!);
+            Assert.Equal("live", body.RootElement.GetProperty("mode").GetString());
+            Assert.Equal("live", app.Mode);
+            Assert.True(app.IsLive);
+        }
+
+        [Fact]
+        public async Task Apps_SetMode_MapsExtensionRequired()
+        {
+            var handler = new MockHttpMessageHandler((HttpStatusCode)402,
+                "{\"error\":\"extension_required\"}");
+            var client = Client(handler);
+
+            var ex = await Assert.ThrowsAsync<ExtensionRequiredException>(
+                () => client.Ussd.Apps.SetModeAsync("aaaaaaaa-0000-0000-0000-000000000007", "live"));
+
+            Assert.Equal(402, ex.StatusCode);
+            Assert.Equal("extension_required", ex.Message);
+        }
+
+        [Fact]
+        public async Task Apps_RotateSecret_PostsModeAndReturnsRotatedSecret()
+        {
+            var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
+                "{\"data\":{\"id\":\"aaaaaaaa-0000-0000-0000-000000000007\",\"mode\":\"test\"," +
+                "\"test_secret\":\"ussk_test_new\",\"is_live\":false,\"active\":true}}");
+            var client = Client(handler);
+
+            var app = await client.Ussd.Apps.RotateSecretAsync("aaaaaaaa-0000-0000-0000-000000000007", "test");
+
+            Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+            Assert.Equal("https://api.helliomessaging.com/v1/ussd/apps/aaaaaaaa-0000-0000-0000-000000000007/rotate-secret",
+                handler.LastRequest!.RequestUri!.ToString());
+            using var body = JsonDocument.Parse(handler.LastRequestBody!);
+            Assert.Equal("test", body.RootElement.GetProperty("mode").GetString());
+            Assert.Equal("ussk_test_new", app.TestSecret);
+        }
+
+        [Fact]
         public async Task Apps_Delete_UsesDeleteMethod()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.NoContent, "");
             var client = Client(handler);
 
-            await client.Ussd.Apps.DeleteAsync(7);
+            await client.Ussd.Apps.DeleteAsync("aaaaaaaa-0000-0000-0000-000000000007");
 
             Assert.Equal(HttpMethod.Delete, handler.LastRequest!.Method);
-            Assert.Equal("https://api.helliomessaging.com/v1/ussd/apps/7",
+            Assert.Equal("https://api.helliomessaging.com/v1/ussd/apps/aaaaaaaa-0000-0000-0000-000000000007",
                 handler.LastRequest!.RequestUri!.ToString());
         }
 
@@ -145,8 +207,10 @@ namespace Hellio.Messaging.Tests
         public async Task Extensions_List_ReturnsTypedList()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
-                "{\"data\":[{\"id\":3,\"code\":\"100\",\"dial_string\":\"*920*100#\",\"length\":3," +
-                "\"status\":\"active\",\"monthly_price\":50,\"auto_renew\":true,\"app_id\":7,\"expires_at\":\"2026-08-01T00:00:00Z\"}]}");
+                "{\"data\":[{\"id\":\"33333333-0000-0000-0000-000000000003\",\"code\":\"100\"," +
+                "\"dial_string\":\"*920*100#\",\"length\":3,\"status\":\"active\"," +
+                "\"monthly_price\":50,\"auto_renew\":true," +
+                "\"app_id\":\"aaaaaaaa-0000-0000-0000-000000000007\",\"expires_at\":\"2026-08-01T00:00:00Z\"}]}");
             var client = Client(handler);
 
             var extensions = await client.Ussd.Extensions.ListAsync();
@@ -156,32 +220,32 @@ namespace Hellio.Messaging.Tests
             Assert.Equal("*920*100#", extensions[0].DialString);
             Assert.Equal(50m, extensions[0].MonthlyPrice);
             Assert.True(extensions[0].AutoRenew);
-            Assert.Equal(7, extensions[0].AppId);
+            Assert.Equal("aaaaaaaa-0000-0000-0000-000000000007", extensions[0].AppId);
         }
 
         [Fact]
         public async Task Extensions_Rent_PostsCodeAndAppIdWhenGiven()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.Created,
-                "{\"data\":{\"id\":3,\"code\":\"100\",\"status\":\"active\"}}");
+                "{\"data\":{\"id\":\"33333333-0000-0000-0000-000000000003\",\"code\":\"100\",\"status\":\"active\"}}");
             var client = Client(handler);
 
-            var ext = await client.Ussd.Extensions.RentAsync("100", appId: 7);
+            var ext = await client.Ussd.Extensions.RentAsync("100", appId: "aaaaaaaa-0000-0000-0000-000000000007");
 
             Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
             Assert.Equal("https://api.helliomessaging.com/v1/ussd/extensions",
                 handler.LastRequest!.RequestUri!.ToString());
             using var body = JsonDocument.Parse(handler.LastRequestBody!);
             Assert.Equal("100", body.RootElement.GetProperty("code").GetString());
-            Assert.Equal(7, body.RootElement.GetProperty("app_id").GetInt64());
-            Assert.Equal(3, ext.Id);
+            Assert.Equal("aaaaaaaa-0000-0000-0000-000000000007", body.RootElement.GetProperty("app_id").GetString());
+            Assert.Equal("33333333-0000-0000-0000-000000000003", ext.Id);
         }
 
         [Fact]
         public async Task Extensions_Rent_OmitsAppIdWhenNull()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.Created,
-                "{\"data\":{\"id\":3,\"code\":\"100\"}}");
+                "{\"data\":{\"id\":\"33333333-0000-0000-0000-000000000003\",\"code\":\"100\"}}");
             var client = Client(handler);
 
             await client.Ussd.Extensions.RentAsync("100");
@@ -205,17 +269,17 @@ namespace Hellio.Messaging.Tests
         }
 
         [Fact]
-        public async Task Extensions_Rent_MapsInsufficientBalance()
+        public async Task Extensions_Rent_MapsInsufficientUssdBalance()
         {
             var handler = new MockHttpMessageHandler((HttpStatusCode)402,
-                "{\"error\":\"insufficient_balance\"}");
+                "{\"error\":\"insufficient_ussd_balance\"}");
             var client = Client(handler);
 
             var ex = await Assert.ThrowsAsync<InsufficientBalanceException>(
                 () => client.Ussd.Extensions.RentAsync("100"));
 
             Assert.Equal(402, ex.StatusCode);
-            Assert.Equal("insufficient_balance", ex.Message);
+            Assert.Equal("insufficient_ussd_balance", ex.Message);
         }
 
         [Fact]
@@ -224,10 +288,10 @@ namespace Hellio.Messaging.Tests
             var handler = new MockHttpMessageHandler(HttpStatusCode.NoContent, "");
             var client = Client(handler);
 
-            await client.Ussd.Extensions.ReleaseAsync(3);
+            await client.Ussd.Extensions.ReleaseAsync("33333333-0000-0000-0000-000000000003");
 
             Assert.Equal(HttpMethod.Delete, handler.LastRequest!.Method);
-            Assert.Equal("https://api.helliomessaging.com/v1/ussd/extensions/3",
+            Assert.Equal("https://api.helliomessaging.com/v1/ussd/extensions/33333333-0000-0000-0000-000000000003",
                 handler.LastRequest!.RequestUri!.ToString());
         }
 
@@ -237,7 +301,7 @@ namespace Hellio.Messaging.Tests
         public async Task Sessions_List_AddsStatusQuery()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
-                "{\"data\":[{\"id\":9,\"session_ref\":\"ref-9\",\"msisdn\":\"233241234567\"," +
+                "{\"data\":[{\"id\":\"99999999-0000-0000-0000-000000000009\",\"session_ref\":\"ref-9\",\"msisdn\":\"233241234567\"," +
                 "\"service_code\":\"*920*100#\",\"status\":\"ended\",\"steps\":4,\"charge\":\"0.12\",\"sandbox\":false}]}");
             var client = Client(handler);
 
@@ -267,14 +331,14 @@ namespace Hellio.Messaging.Tests
         public async Task Sessions_Get_FetchesById()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
-                "{\"data\":{\"id\":9,\"session_ref\":\"ref-9\",\"status\":\"ended\",\"steps\":2}}");
+                "{\"data\":{\"id\":\"99999999-0000-0000-0000-000000000009\",\"session_ref\":\"ref-9\",\"status\":\"ended\",\"steps\":2}}");
             var client = Client(handler);
 
-            var session = await client.Ussd.Sessions.GetAsync(9);
+            var session = await client.Ussd.Sessions.GetAsync("99999999-0000-0000-0000-000000000009");
 
-            Assert.Equal("https://api.helliomessaging.com/v1/ussd/sessions/9",
+            Assert.Equal("https://api.helliomessaging.com/v1/ussd/sessions/99999999-0000-0000-0000-000000000009",
                 handler.LastRequest!.RequestUri!.ToString());
-            Assert.Equal(9, session.Id);
+            Assert.Equal("99999999-0000-0000-0000-000000000009", session.Id);
             Assert.Equal("ended", session.Status);
         }
 
@@ -288,17 +352,19 @@ namespace Hellio.Messaging.Tests
             var client = Client(handler);
 
             var result = await client.Ussd.SimulateAsync(
+                appId: "aaaaaaaa-0000-0000-0000-000000000007",
                 msisdn: "233241234567",
-                serviceCode: "*920*100#",
                 input: "1",
                 sessionId: "sess-1",
-                newSession: false);
+                newSession: false,
+                serviceCode: "*920*100#");
 
             Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
             Assert.Equal("https://api.helliomessaging.com/v1/ussd/simulate",
                 handler.LastRequest!.RequestUri!.ToString());
             using var body = JsonDocument.Parse(handler.LastRequestBody!);
             var root = body.RootElement;
+            Assert.Equal("aaaaaaaa-0000-0000-0000-000000000007", root.GetProperty("app_id").GetString());
             Assert.Equal("sess-1", root.GetProperty("session_id").GetString());
             Assert.Equal("233241234567", root.GetProperty("msisdn").GetString());
             Assert.Equal("*920*100#", root.GetProperty("service_code").GetString());
@@ -310,18 +376,40 @@ namespace Hellio.Messaging.Tests
         }
 
         [Fact]
-        public async Task Simulate_OmitsSessionIdWhenNewSession()
+        public async Task Simulate_OmitsSessionIdAndServiceCodeByDefault()
         {
             var handler = new MockHttpMessageHandler(HttpStatusCode.OK,
                 "{\"data\":{\"message\":\"Welcome\",\"action\":\"continue\",\"continue\":true}}");
             var client = Client(handler);
 
-            await client.Ussd.SimulateAsync("233241234567", "*920*100#", newSession: true);
+            await client.Ussd.SimulateAsync(
+                appId: "aaaaaaaa-0000-0000-0000-000000000007",
+                msisdn: "233241234567",
+                newSession: true);
 
             using var body = JsonDocument.Parse(handler.LastRequestBody!);
+            Assert.Equal("aaaaaaaa-0000-0000-0000-000000000007", body.RootElement.GetProperty("app_id").GetString());
             Assert.False(body.RootElement.TryGetProperty("session_id", out _));
             Assert.False(body.RootElement.TryGetProperty("input", out _));
+            Assert.False(body.RootElement.TryGetProperty("service_code", out _));
             Assert.True(body.RootElement.GetProperty("new_session").GetBoolean());
+        }
+
+        [Fact]
+        public async Task Simulate_MapsUnknownAppToValidation()
+        {
+            var handler = new MockHttpMessageHandler((HttpStatusCode)422,
+                "{\"error\":\"unknown_app\"}");
+            var client = Client(handler);
+
+            var ex = await Assert.ThrowsAsync<ValidationException>(
+                () => client.Ussd.SimulateAsync(
+                    appId: "aaaaaaaa-0000-0000-0000-000000000007",
+                    msisdn: "233241234567",
+                    newSession: true));
+
+            Assert.Equal(422, ex.StatusCode);
+            Assert.Equal("unknown_app", ex.Message);
         }
     }
 }

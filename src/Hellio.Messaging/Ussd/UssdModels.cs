@@ -27,11 +27,14 @@ namespace Hellio.Messaging
         }
     }
 
-    /// <summary>A registered USSD application (holds the callback URL and signing secret).</summary>
+    /// <summary>
+    /// A registered USSD application. Each app has independent test and live signing secrets
+    /// and a <see cref="Mode"/> that selects which one is active. New apps start in "test".
+    /// </summary>
     public sealed class UssdApp
     {
-        /// <summary>Application id.</summary>
-        [JsonPropertyName("id")] public long Id { get; set; }
+        /// <summary>Application id (UUID).</summary>
+        [JsonPropertyName("id")] public string? Id { get; set; }
 
         /// <summary>Human-readable application name.</summary>
         [JsonPropertyName("name")] public string? Name { get; set; }
@@ -39,8 +42,17 @@ namespace Hellio.Messaging
         /// <summary>URL Hellio POSTs each USSD step to.</summary>
         [JsonPropertyName("callback_url")] public string? CallbackUrl { get; set; }
 
-        /// <summary>HMAC-SHA256 signing secret; present on create, may be hidden on list.</summary>
-        [JsonPropertyName("secret")] public string? Secret { get; set; }
+        /// <summary>Active mode, either "test" or "live". New apps start in "test".</summary>
+        [JsonPropertyName("mode")] public string? Mode { get; set; }
+
+        /// <summary>HMAC-SHA256 signing secret for test mode (prefix <c>ussk_test_</c>).</summary>
+        [JsonPropertyName("test_secret")] public string? TestSecret { get; set; }
+
+        /// <summary>HMAC-SHA256 signing secret for live mode (prefix <c>ussk_live_</c>).</summary>
+        [JsonPropertyName("live_secret")] public string? LiveSecret { get; set; }
+
+        /// <summary>True when <see cref="Mode"/> is "live".</summary>
+        [JsonPropertyName("is_live")] public bool IsLive { get; set; }
 
         /// <summary>Whether the application is active and receiving callbacks.</summary>
         [JsonPropertyName("active")] public bool Active { get; set; }
@@ -52,8 +64,8 @@ namespace Hellio.Messaging
     /// <summary>A rented USSD extension (a dialable suffix under a shared short code).</summary>
     public sealed class UssdExtension
     {
-        /// <summary>Extension id.</summary>
-        [JsonPropertyName("id")] public long Id { get; set; }
+        /// <summary>Extension id (UUID).</summary>
+        [JsonPropertyName("id")] public string? Id { get; set; }
 
         /// <summary>The rented extension code, e.g. <c>100</c>.</summary>
         [JsonPropertyName("code")] public string? Code { get; set; }
@@ -73,8 +85,8 @@ namespace Hellio.Messaging
         /// <summary>Whether the rental renews automatically each month.</summary>
         [JsonPropertyName("auto_renew")] public bool AutoRenew { get; set; }
 
-        /// <summary>Id of the application bound to this extension, if any.</summary>
-        [JsonPropertyName("app_id")] public long? AppId { get; set; }
+        /// <summary>Id (UUID) of the application bound to this extension, if any.</summary>
+        [JsonPropertyName("app_id")] public string? AppId { get; set; }
 
         /// <summary>Expiry timestamp (ISO 8601).</summary>
         [JsonPropertyName("expires_at")] public string? ExpiresAt { get; set; }
@@ -83,8 +95,8 @@ namespace Hellio.Messaging
     /// <summary>A single USSD session record.</summary>
     public sealed class UssdSession
     {
-        /// <summary>Session id.</summary>
-        [JsonPropertyName("id")] public long Id { get; set; }
+        /// <summary>Session id (UUID).</summary>
+        [JsonPropertyName("id")] public string? Id { get; set; }
 
         /// <summary>Aggregator session reference.</summary>
         [JsonPropertyName("session_ref")] public string? SessionRef { get; set; }

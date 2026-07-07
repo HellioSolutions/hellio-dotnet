@@ -319,6 +319,10 @@ namespace Hellio.Messaging
                 return data;
             }
 
+            // Some endpoints (e.g. USSD) report a machine-readable "error" slug
+            // instead of a human "message". Capture it for both the message and
+            // for slug-specific exception mapping within a status code.
+            string? slug = null;
             var message = "Hellio API request failed.";
             if (data.ValueKind == JsonValueKind.Object &&
                 data.TryGetProperty("message", out var m) &&
@@ -326,19 +330,25 @@ namespace Hellio.Messaging
             {
                 message = m.GetString() ?? message;
             }
-            else if (data.ValueKind == JsonValueKind.Object &&
+            if (data.ValueKind == JsonValueKind.Object &&
                 data.TryGetProperty("error", out var e) &&
                 e.ValueKind == JsonValueKind.String)
             {
-                // Some endpoints (e.g. USSD) report a machine-readable "error" key
-                // instead of a human "message".
-                message = e.GetString() ?? message;
+                slug = e.GetString();
+                if (message == "Hellio API request failed." && !string.IsNullOrEmpty(slug))
+                {
+                    message = slug!;
+                }
             }
 
             throw status switch
             {
                 401 => new InvalidApiTokenException(message, status, data),
-                402 => new InsufficientBalanceException(message, status, data),
+                // 402 covers both wallet/USSD insufficient balance and the USSD
+                // "extension_required" case (switching an app to live mode first).
+                402 => slug == "extension_required"
+                    ? (HellioException)new ExtensionRequiredException(message, status, data)
+                    : new InsufficientBalanceException(message, status, data),
                 409 => new ConflictException(message, status, data),
                 422 => new ValidationException(message, status, data),
                 429 => new RateLimitException(message, status, data),
