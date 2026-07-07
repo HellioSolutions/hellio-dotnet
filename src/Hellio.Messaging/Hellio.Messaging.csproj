@@ -10,7 +10,7 @@
 
     <!-- NuGet package metadata -->
     <PackageId>Hellio.Messaging</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>Albert Ninyeh</Authors>
     <Company>Hellio Solutions</Company>
     <Product>Hellio Messaging SDK</Product>

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,20 +49,25 @@ namespace Hellio.Messaging
         }
 
         /// <summary>
-        /// POST <c>ussd/simulate</c>. Drives your callback URL as Hellio would, so you can test a
-        /// flow without a live dial. Set <paramref name="newSession"/> for the first step and pass
-        /// the returned session reference back as <paramref name="sessionId"/> on later steps.
+        /// POST <c>ussd/simulate</c>. Drives your app's callback URL as Hellio would, so you can
+        /// test a flow without a live dial. Always runs in the sandbox (test mode). Set
+        /// <paramref name="newSession"/> for the first step and pass the returned session reference
+        /// back as <paramref name="sessionId"/> on later steps. Leave <paramref name="serviceCode"/>
+        /// null to use the shared short code. An app you do not own returns
+        /// <see cref="ValidationException"/> (422, <c>error: "unknown_app"</c>).
         /// </summary>
         public async Task<UssdSimulateResult> SimulateAsync(
+            string appId,
             string msisdn,
-            string serviceCode,
             string? input = null,
             string? sessionId = null,
             bool newSession = false,
+            string? serviceCode = null,
             CancellationToken cancellationToken = default)
         {
             var request = HellioClient.Compact(new Dictionary<string, object?>
             {
+                ["app_id"] = appId,
                 ["session_id"] = sessionId,
                 ["msisdn"] = msisdn,
                 ["service_code"] = serviceCode,
@@ -90,7 +94,10 @@ namespace Hellio.Messaging
             return UssdJson.Data<List<UssdApp>>(body);
         }
 
-        /// <summary>POST <c>ussd/apps</c>. Register an application and receive its signing secret.</summary>
+        /// <summary>
+        /// POST <c>ussd/apps</c>. Register an application. The response carries both signing
+        /// secrets (<c>test_secret</c> and <c>live_secret</c>); new apps start in "test" mode.
+        /// </summary>
         public async Task<UssdApp> CreateAsync(string name, string callbackUrl, CancellationToken cancellationToken = default)
         {
             var request = new Dictionary<string, object?>
@@ -104,7 +111,7 @@ namespace Hellio.Messaging
         }
 
         /// <summary>PUT <c>ussd/apps/{id}</c>. Update the name, callback URL, or active flag.</summary>
-        public async Task<UssdApp> UpdateAsync(long id, string name, string callbackUrl, bool active, CancellationToken cancellationToken = default)
+        public async Task<UssdApp> UpdateAsync(string id, string name, string callbackUrl, bool active, CancellationToken cancellationToken = default)
         {
             var request = new Dictionary<string, object?>
             {
@@ -113,13 +120,36 @@ namespace Hellio.Messaging
                 ["active"] = active,
             };
 
-            var body = await _client.PutAsync("ussd/apps/" + id.ToString(CultureInfo.InvariantCulture), request, cancellationToken).ConfigureAwait(false);
+            var body = await _client.PutAsync("ussd/apps/" + id, request, cancellationToken).ConfigureAwait(false);
+            return UssdJson.Data<UssdApp>(body);
+        }
+
+        /// <summary>
+        /// POST <c>ussd/apps/{id}/mode</c>. Switch the app between "test" and "live". Switching to
+        /// "live" before an extension is purchased throws <see cref="ExtensionRequiredException"/>
+        /// (402, <c>error: "extension_required"</c>). Returns the updated app.
+        /// </summary>
+        public async Task<UssdApp> SetModeAsync(string id, string mode, CancellationToken cancellationToken = default)
+        {
+            var request = new Dictionary<string, object?> { ["mode"] = mode };
+            var body = await _client.PostAsync("ussd/apps/" + id + "/mode", request, cancellationToken).ConfigureAwait(false);
+            return UssdJson.Data<UssdApp>(body);
+        }
+
+        /// <summary>
+        /// POST <c>ussd/apps/{id}/rotate-secret</c>. Generate a fresh signing secret for the given
+        /// <paramref name="mode"/> ("test" or "live"). Returns the app carrying the rotated secret.
+        /// </summary>
+        public async Task<UssdApp> RotateSecretAsync(string id, string mode, CancellationToken cancellationToken = default)
+        {
+            var request = new Dictionary<string, object?> { ["mode"] = mode };
+            var body = await _client.PostAsync("ussd/apps/" + id + "/rotate-secret", request, cancellationToken).ConfigureAwait(false);
             return UssdJson.Data<UssdApp>(body);
         }
 
         /// <summary>DELETE <c>ussd/apps/{id}</c>. Remove an application.</summary>
-        public Task DeleteAsync(long id, CancellationToken cancellationToken = default)
-            => _client.DeleteAsync("ussd/apps/" + id.ToString(CultureInfo.InvariantCulture), cancellationToken);
+        public Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+            => _client.DeleteAsync("ussd/apps/" + id, cancellationToken);
     }
 
     /// <summary>USSD extensions resource. Reached through <c>client.Ussd.Extensions</c>.</summary>
@@ -138,10 +168,12 @@ namespace Hellio.Messaging
 
         /// <summary>
         /// POST <c>ussd/extensions</c>. Rent an extension code, optionally binding it to an app.
-        /// Throws <see cref="ConflictException"/> (409) when the code is taken and
-        /// <see cref="InsufficientBalanceException"/> (402) when the wallet cannot cover the rental.
+        /// The rental is drawn from your dedicated USSD balance (separate from SMS credit and the
+        /// main wallet). Throws <see cref="ConflictException"/> (409) when the code is taken and
+        /// <see cref="InsufficientBalanceException"/> (402, <c>error: "insufficient_ussd_balance"</c>)
+        /// when the USSD balance cannot cover the rental.
         /// </summary>
-        public async Task<UssdExtension> RentAsync(string code, long? appId = null, CancellationToken cancellationToken = default)
+        public async Task<UssdExtension> RentAsync(string code, string? appId = null, CancellationToken cancellationToken = default)
         {
             var request = HellioClient.Compact(new Dictionary<string, object?>
             {
@@ -154,8 +186,8 @@ namespace Hellio.Messaging
         }
 
         /// <summary>DELETE <c>ussd/extensions/{id}</c>. Release a rented extension.</summary>
-        public Task ReleaseAsync(long id, CancellationToken cancellationToken = default)
-            => _client.DeleteAsync("ussd/extensions/" + id.ToString(CultureInfo.InvariantCulture), cancellationToken);
+        public Task ReleaseAsync(string id, CancellationToken cancellationToken = default)
+            => _client.DeleteAsync("ussd/extensions/" + id, cancellationToken);
     }
 
     /// <summary>USSD sessions resource. Reached through <c>client.Ussd.Sessions</c>.</summary>
@@ -183,9 +215,9 @@ namespace Hellio.Messaging
         }
 
         /// <summary>GET <c>ussd/sessions/{id}</c>. A single session with its step count and charge.</summary>
-        public async Task<UssdSession> GetAsync(long id, CancellationToken cancellationToken = default)
+        public async Task<UssdSession> GetAsync(string id, CancellationToken cancellationToken = default)
         {
-            var body = await _client.GetAsync("ussd/sessions/" + id.ToString(CultureInfo.InvariantCulture), null, cancellationToken).ConfigureAwait(false);
+            var body = await _client.GetAsync("ussd/sessions/" + id, null, cancellationToken).ConfigureAwait(false);
             return UssdJson.Data<UssdSession>(body);
         }
     }
