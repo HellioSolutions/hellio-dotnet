@@ -60,7 +60,15 @@ namespace Hellio.Messaging
             {
                 _http = new HttpClient { Timeout = timeout ?? TimeSpan.FromSeconds(30) };
             }
+
+            Ussd = new UssdService(this);
         }
+
+        /// <summary>
+        /// USSD service: short-code pricing and availability, applications, extension
+        /// rentals, sessions, and the callback simulator. Exposed as <c>client.Ussd</c>.
+        /// </summary>
+        public UssdService Ussd { get; }
 
         // ------------------------------------------------------------- Account
 
@@ -259,7 +267,7 @@ namespace Hellio.Messaging
 
         // ------------------------------------------------------------ internals
 
-        private Task<JsonElement> GetAsync(string path, IDictionary<string, string>? query, CancellationToken cancellationToken)
+        internal Task<JsonElement> GetAsync(string path, IDictionary<string, string>? query, CancellationToken cancellationToken)
         {
             var relative = path;
             if (query != null && query.Count > 0)
@@ -272,10 +280,13 @@ namespace Hellio.Messaging
             return SendAsync(HttpMethod.Get, relative, null, cancellationToken);
         }
 
-        private Task<JsonElement> PostAsync(string path, IDictionary<string, object?> body, CancellationToken cancellationToken)
+        internal Task<JsonElement> PostAsync(string path, IDictionary<string, object?> body, CancellationToken cancellationToken)
             => SendAsync(HttpMethod.Post, path, body, cancellationToken);
 
-        private Task<JsonElement> DeleteAsync(string path, CancellationToken cancellationToken)
+        internal Task<JsonElement> PutAsync(string path, IDictionary<string, object?> body, CancellationToken cancellationToken)
+            => SendAsync(HttpMethod.Put, path, body, cancellationToken);
+
+        internal Task<JsonElement> DeleteAsync(string path, CancellationToken cancellationToken)
             => SendAsync(HttpMethod.Delete, path, null, cancellationToken);
 
         private async Task<JsonElement> SendAsync(HttpMethod method, string relativePath, IDictionary<string, object?>? body, CancellationToken cancellationToken)
@@ -315,11 +326,20 @@ namespace Hellio.Messaging
             {
                 message = m.GetString() ?? message;
             }
+            else if (data.ValueKind == JsonValueKind.Object &&
+                data.TryGetProperty("error", out var e) &&
+                e.ValueKind == JsonValueKind.String)
+            {
+                // Some endpoints (e.g. USSD) report a machine-readable "error" key
+                // instead of a human "message".
+                message = e.GetString() ?? message;
+            }
 
             throw status switch
             {
                 401 => new InvalidApiTokenException(message, status, data),
                 402 => new InsufficientBalanceException(message, status, data),
+                409 => new ConflictException(message, status, data),
                 422 => new ValidationException(message, status, data),
                 429 => new RateLimitException(message, status, data),
                 503 => new ServiceUnavailableException(message, status, data),
@@ -387,7 +407,7 @@ namespace Hellio.Messaging
             => value?.ToList() ?? new List<string>();
 
         /// <summary>Drop null-valued entries from a request body.</summary>
-        private static Dictionary<string, object?> Compact(Dictionary<string, object?> data)
+        internal static Dictionary<string, object?> Compact(Dictionary<string, object?> data)
             => data.Where(kv => kv.Value != null).ToDictionary(kv => kv.Key, kv => kv.Value);
     }
 }

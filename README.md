@@ -7,7 +7,7 @@
 
 .NET client for the [Hellio Messaging](https://helliomessaging.com) API v1:
 **SMS**, **OTP** (SMS / email / voice), **Voice broadcasts**, **Number Lookup (HLR)**,
-**Email Verification**, and **Webhooks**.
+**Email Verification**, **USSD**, and **Webhooks**.
 
 Targets `netstandard2.0` and `net8.0`, so it runs on .NET Framework 4.6.1+, .NET Core,
 Xamarin, and modern .NET.
@@ -42,8 +42,8 @@ var hellio = new HellioClient();
 ```
 
 Every call returns a `System.Text.Json.JsonElement` (payloads live under a `data` key),
-except `VerifyAsync`, which returns a `bool`. All methods are async and accept an optional
-`CancellationToken`.
+except `VerifyAsync`, which returns a `bool`, and the `Ussd` methods, which return typed
+models (see [USSD](#ussd)). All methods are async and accept an optional `CancellationToken`.
 
 ## Usage
 
@@ -100,6 +100,89 @@ JsonElement balance = await hellio.BalanceAsync();
 string available = balance.GetProperty("data").GetProperty("available").GetString();
 ```
 
+## USSD
+USSD lives under `hellio.Ussd` and needs a token with the `ussd` ability. Unlike the rest
+of the SDK, these methods return **typed models** (for example `UssdApp`, `UssdExtension`,
+`UssdSession`) rather than a raw `JsonElement`. List methods accept an optional `cursor` for
+pagination.
+
+```csharp
+using Hellio.Messaging;
+
+var hellio = new HellioClient(token: "your-token-here");
+
+// Pricing and availability
+UssdPricing pricing = await hellio.Ussd.PricingAsync();
+UssdAvailability check = await hellio.Ussd.AvailabilityAsync("100");
+if (check.Valid && check.Available)
+{
+    // check.MonthlyPrice holds the rental cost
+}
+
+// Applications (hold your callback URL and signing secret)
+UssdApp app = await hellio.Ussd.Apps.CreateAsync("Airtime top-up", "https://your-app.com/ussd");
+string secret = app.Secret;                         // save this to verify callback signatures
+await hellio.Ussd.Apps.UpdateAsync(app.Id, "Airtime top-up", "https://your-app.com/ussd", active: true);
+IReadOnlyList<UssdApp> apps = await hellio.Ussd.Apps.ListAsync();
+await hellio.Ussd.Apps.DeleteAsync(app.Id);
+
+// Extensions (a dialable suffix under a shared short code)
+try
+{
+    UssdExtension ext = await hellio.Ussd.Extensions.RentAsync("100", appId: app.Id);
+    // ext.DialString is what subscribers dial, e.g. *920*100#
+}
+catch (ConflictException)            // 409: the code is already taken
+{
+}
+catch (InsufficientBalanceException) // 402: top up your wallet
+{
+}
+IReadOnlyList<UssdExtension> extensions = await hellio.Ussd.Extensions.ListAsync();
+await hellio.Ussd.Extensions.ReleaseAsync(3);
+
+// Sessions
+IReadOnlyList<UssdSession> ended = await hellio.Ussd.Sessions.ListAsync(status: "ended");
+UssdSession session = await hellio.Ussd.Sessions.GetAsync(9);
+
+// Simulate a flow against your callback URL without a live dial.
+// Start with newSession: true, then pass the reference back on later steps.
+UssdSimulateResult step1 = await hellio.Ussd.SimulateAsync(
+    msisdn: "233241234567", serviceCode: "*920*100#", newSession: true);
+UssdSimulateResult step2 = await hellio.Ussd.SimulateAsync(
+    msisdn: "233241234567", serviceCode: "*920*100#", input: "1", sessionId: "sess-1");
+// step.Message is shown to the subscriber; step.Continue is false when the session ends.
+```
+
+### Handling USSD callbacks
+When a subscriber dials your extension, Hellio POSTs a JSON body to your app's `callback_url`:
+
+```json
+{ "sessionId": "...", "msisdn": "...", "serviceCode": "...", "input": "...", "sequence": 1, "mode": "..." }
+```
+
+The request is signed with an `X-Hellio-Signature` header holding
+`HMAC-SHA256(rawBody, app.Secret)`. Verify it, then reply with `{ "message": ..., "action": ... }`
+where `action` is `continue` or `end`.
+
+```csharp
+using System.Security.Cryptography;
+using System.Text;
+
+static bool SignatureIsValid(string rawBody, string signatureHeader, string appSecret)
+{
+    using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(appSecret));
+    var computed = hmac.ComputeHash(Encoding.UTF8.GetBytes(rawBody));
+    var expected = Convert.ToHexString(computed).ToLowerInvariant();
+    return CryptographicOperations.FixedTimeEquals(
+        Encoding.UTF8.GetBytes(expected),
+        Encoding.UTF8.GetBytes(signatureHeader));
+}
+
+// Then return, for example:
+// { "message": "Welcome to Airtime top-up\n1. Buy\n2. Balance", "action": "continue" }
+```
+
 ## Error handling
 Non-2xx responses throw typed exceptions (all extend `HellioException`). Each carries the
 HTTP `StatusCode` and the parsed `Response` body; `ValidationException` exposes field errors
@@ -109,6 +192,7 @@ via the `Errors` property.
 |---|---|
 | `InvalidApiTokenException` | 401 |
 | `InsufficientBalanceException` | 402 |
+| `ConflictException` | 409 |
 | `ValidationException` (`.Errors`) | 422 |
 | `RateLimitException` | 429 |
 | `HellioException` | other |

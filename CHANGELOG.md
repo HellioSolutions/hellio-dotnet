@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [1.1.0] - 2026-07-07
+
+### Added
+- USSD support via `client.Ussd`, requiring a token with the `ussd` ability:
+  - `PricingAsync()` and `AvailabilityAsync(code)` for short-code pricing and code availability.
+  - `client.Ussd.Apps` with `ListAsync`, `CreateAsync`, `UpdateAsync`, `DeleteAsync`.
+  - `client.Ussd.Extensions` with `ListAsync`, `RentAsync`, `ReleaseAsync`.
+  - `client.Ussd.Sessions` with `ListAsync` (optional `status` filter) and `GetAsync`.
+  - `SimulateAsync(...)` to drive your callback URL without a live dial.
+- Typed USSD models: `UssdApp`, `UssdExtension`, `UssdSession`, `UssdPricing`
+  (`UssdSessionPrice`, `UssdExtensionPrice`), `UssdAvailability`, and `UssdSimulateResult`.
+- `ConflictException` (409), raised when renting an unavailable extension
+  (`error: "extension_unavailable"`); insufficient balance still maps to
+  `InsufficientBalanceException` (402).
+- Cursor pagination on USSD list methods via an optional `cursor` argument.
+
 ## [1.0.0] - 2026-07-05
 
 Initial release.

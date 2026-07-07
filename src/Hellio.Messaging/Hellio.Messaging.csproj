@@ -10,12 +10,12 @@
 
     <!-- NuGet package metadata -->
     <PackageId>Hellio.Messaging</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>Albert Ninyeh</Authors>
     <Company>Hellio Solutions</Company>
     <Product>Hellio Messaging SDK</Product>
-    <Description>Official .NET client for the Hellio Messaging API v1: SMS, OTP (SMS / email / voice), Voice broadcasts, Number Lookup (HLR), Email Verification, and Webhooks.</Description>
-    <PackageTags>hellio;sms;otp;voice;messaging;hlr;lookup;webhooks;email-verification</PackageTags>
+    <Description>Official .NET client for the Hellio Messaging API v1: SMS, OTP (SMS / email / voice), Voice broadcasts, Number Lookup (HLR), Email Verification, USSD, and Webhooks.</Description>
+    <PackageTags>hellio;sms;otp;voice;messaging;hlr;lookup;webhooks;email-verification;ussd</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/HellioSolutions/hellio-dotnet</PackageProjectUrl>
     <RepositoryUrl>https://github.com/HellioSolutions/hellio-dotnet</RepositoryUrl>
